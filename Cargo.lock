@@ -402,6 +402,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-macros"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6293dae2ec708e679da6736e857cf8532886ef258e92930f38279c12641628b8"
+dependencies = [
+ "heck 0.4.0",
+ "proc-macro2 1.0.42",
+ "quote 1.0.21",
+ "syn 1.0.99",
+]
+
+[[package]]
 name = "backoff"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7376,6 +7388,27 @@ dependencies = [
  "tokio",
  "tracing",
  "workspace-hack 0.1.0",
+]
+
+[[package]]
+name = "sui-rosetta"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "axum-macros",
+ "bcs",
+ "itertools",
+ "lazy_static 1.4.0",
+ "serde 1.0.143",
+ "serde_json",
+ "serde_with 2.0.0",
+ "signature",
+ "sui-sdk",
+ "sui-types",
+ "tokio",
+ "tower",
+ "tracing",
 ]
 
 [[package]]

@@ -273,6 +273,20 @@ impl PublicKey {
             PublicKey::Secp256k1KeyPair(_) => Secp256k1SuiSignature::SCHEME.flag(),
         }
     }
+
+    pub fn try_from_bytes(
+        curve: SignatureScheme,
+        key_bytes: &[u8],
+    ) -> Result<PublicKey, eyre::Report> {
+        Ok(match curve {
+            SignatureScheme::ED25519 => {
+                PublicKey::Ed25519KeyPair(Ed25519PublicKey::from_bytes(key_bytes)?)
+            }
+            SignatureScheme::Secp256k1 => {
+                PublicKey::Secp256k1KeyPair(Secp256k1PublicKey::from_bytes(key_bytes)?)
+            }
+        })
+    }
 }
 
 //
