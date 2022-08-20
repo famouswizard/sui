@@ -7392,22 +7392,28 @@ dependencies = [
 
 [[package]]
 name = "sui-rosetta"
-version = "0.0.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "axum",
+ "axum-core",
  "axum-macros",
  "bcs",
+ "hyper",
  "itertools",
- "lazy_static 1.4.0",
+ "once_cell",
  "serde 1.0.143",
  "serde_json",
- "serde_with 2.0.0",
+ "serde_with 1.14.0",
  "signature",
+ "strum",
+ "strum_macros",
  "sui-sdk",
  "sui-types",
+ "telemetry-subscribers",
  "tokio",
  "tower",
+ "tower-http",
  "tracing",
 ]
 
