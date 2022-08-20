@@ -622,6 +622,7 @@ autocfg-c65f7effa3be6d31 = { package = "autocfg", version = "0.1", default-featu
 autocfg-dff4ba8e3ae991db = { package = "autocfg", version = "1", default-features = false }
 axum = { version = "0.5", features = ["form", "http1", "json", "matched-path", "original-uri", "query", "serde_json", "serde_urlencoded", "tower-log"] }
 axum-core = { version = "0.2", default-features = false }
+axum-macros = { version = "0.2", default-features = false }
 backoff = { version = "0.4", features = ["futures", "futures-core", "pin-project-lite", "tokio", "tokio_1"] }
 backtrace = { version = "0.3", features = ["std"] }
 base16ct = { version = "0.1", default-features = false, features = ["alloc"] }
