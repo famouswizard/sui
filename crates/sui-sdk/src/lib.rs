@@ -14,6 +14,7 @@ use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::transaction_builder::TransactionBuilder;
 use rpc_types::SuiExecuteTransactionResponse;
 pub use sui_config::gateway;
 use sui_config::gateway::GatewayConfig;
@@ -35,8 +36,6 @@ pub use sui_types as types;
 use sui_types::base_types::{ObjectID, SuiAddress, TransactionDigest};
 use sui_types::messages::Transaction;
 use types::messages::ExecuteTransactionRequestType;
-
-use crate::transaction_builder::TransactionBuilder;
 
 // re-export essential sui crates
 pub mod crypto;

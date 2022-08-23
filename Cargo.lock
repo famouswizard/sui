@@ -7395,6 +7395,7 @@ name = "sui-rosetta"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "axum-core",
  "axum-macros",
@@ -7405,6 +7406,7 @@ dependencies = [
  "serde 1.0.143",
  "serde_json",
  "serde_with 1.14.0",
+ "sha3 0.10.2",
  "signature",
  "strum",
  "strum_macros",
