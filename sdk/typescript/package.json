@@ -8,7 +8,7 @@
     "src"
   ],
   "engines": {
-    "node": ">=10"
+    "node": ">=16"
   },
   "scripts": {
     "start": "node ./type_guards.mjs; tsdx watch",
@@ -16,7 +16,7 @@
     "doc": "typedoc",
     "test": "tsdx test",
     "lint": "tsdx lint",
-    "prepare": "tsdx build",
+    "prepublishOnly": "pnpm build",
     "size": "size-limit",
     "analyze": "size-limit --why"
   },

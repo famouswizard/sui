@@ -10,10 +10,9 @@
     "test": "tests"
   },
   "scripts": {
-    "prepublish": "tsdx lint && tsdx build",
+    "prepublishOnly": "tsdx lint && tsdx build",
     "build": "tsdx build",
-    "test": "tsdx test",
-    "prepare": "tsdx build"
+    "test": "tsdx test"
   },
   "repository": {
     "type": "git",
