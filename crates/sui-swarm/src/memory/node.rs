@@ -9,7 +9,10 @@ use sui_config::NodeConfig;
 use sui_node::SuiNode;
 use sui_types::base_types::SuiAddress;
 use tap::TapFallible;
-use tracing::{error, trace};
+use tracing::{error, info, trace};
+
+#[cfg(madsim)]
+use std::net::{IpAddr, SocketAddr};
 
 /// A handle to an in-memory Sui Node.
 ///
@@ -113,8 +116,16 @@ impl std::error::Error for HealthCheckError {}
 
 #[derive(Debug)]
 struct Container {
-    thread: Option<thread::JoinHandle<()>>,
+    join_handle: Option<ContainerJoinHandle>,
     cancel_sender: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+#[derive(Debug)]
+enum ContainerJoinHandle {
+    Thread(thread::JoinHandle<()>),
+
+    #[cfg(madsim)]
+    SimulatorNode(madsim::task::NodeId, madsim::task::JoinHandle<()>),
 }
 
 /// When dropped, stop and wait for the node running in this Container to completely shutdown.
@@ -122,14 +133,26 @@ impl Drop for Container {
     fn drop(&mut self) {
         trace!("dropping Container");
 
-        let thread = self.thread.take().unwrap();
-        let cancel_handle = self.cancel_sender.take().unwrap();
+        let join_handle = self.join_handle.take().unwrap();
 
-        // Notify the thread to shutdown
-        let _ = cancel_handle.send(());
+        match join_handle {
+            ContainerJoinHandle::Thread(thread) => {
+                let cancel_handle = self.cancel_sender.take().unwrap();
 
-        // Wait for the thread to join
-        thread.join().unwrap();
+                // Notify the thread to shutdown
+                let _ = cancel_handle.send(());
+
+                // Wait for the thread to join
+                thread.join().unwrap();
+            }
+
+            #[cfg(madsim)]
+            ContainerJoinHandle::SimulatorNode(node_id, join_handle) => {
+                info!("shutting down {}", node_id);
+                join_handle.abort();
+                madsim::runtime::Handle::current().kill(node_id);
+            }
+        }
 
         trace!("finished dropping Container");
     }
@@ -138,6 +161,59 @@ impl Drop for Container {
 impl Container {
     /// Spawn a new Node.
     pub fn spawn(
+        config: NodeConfig,
+        runtime: RuntimeType,
+    ) -> (tokio::sync::oneshot::Receiver<()>, Self) {
+        if cfg!(madsim) {
+            Self::spawn_simulator_nodes(config)
+        } else {
+            Self::spawn_threads(config, runtime)
+        }
+    }
+
+    #[cfg(madsim)]
+    fn spawn_simulator_nodes(config: NodeConfig) -> (tokio::sync::oneshot::Receiver<()>, Self) {
+        let (startup_sender, startup_reciever) = tokio::sync::oneshot::channel();
+        let (cancel_sender, cancel_reciever) = tokio::sync::oneshot::channel();
+
+        let handle = madsim::runtime::Handle::current();
+        let builder = handle.create_node();
+
+        let socket_addr =
+            mysten_network::multiaddr::to_socket_addr(&config.network_address).unwrap();
+        let ip = match socket_addr {
+            SocketAddr::V4(v4) => IpAddr::V4(*v4.ip()),
+            _ => panic!("unsupported protocol"),
+        };
+
+        let node = builder
+            .ip(ip)
+            .name(format!("{}", config.protocol_public_key()))
+            .init(|| async {
+                info!("node restarted");
+            })
+            .build();
+
+        let join_handle = node.spawn(async move {
+            let _server = SuiNode::start(&config).await.unwrap();
+            // Notify that we've successfully started the node
+            error!("node started, sending oneshot");
+            let _ = startup_sender.send(());
+            // run until canceled
+            cancel_reciever.map(|_| ()).await;
+            trace!("cancellation received; shutting down thread");
+        });
+
+        (
+            startup_reciever,
+            Self {
+                join_handle: Some(ContainerJoinHandle::SimulatorNode(node.id(), join_handle)),
+                cancel_sender: Some(cancel_sender),
+            },
+        )
+    }
+
+    fn spawn_threads(
         config: NodeConfig,
         runtime: RuntimeType,
     ) -> (tokio::sync::oneshot::Receiver<()>, Self) {
@@ -192,7 +268,7 @@ impl Container {
         (
             startup_reciever,
             Self {
-                thread: Some(thread),
+                join_handle: Some(ContainerJoinHandle::Thread(thread)),
                 cancel_sender: Some(cancel_sender),
             },
         )
