@@ -90,43 +90,78 @@ impl<R: ::rand::RngCore + ::rand::CryptoRng> ConfigBuilder<R> {
 
         let validators = match committee {
             CommitteeConfig::Size(size) => (0..size.get())
-            .map(|_| {
-                (
-                    get_key_pair_from_rng(&mut self.rng).1,
-                    get_key_pair_from_rng::<AccountKeyPair, _>(&mut self.rng)
-                        .1
-                        .into(),
-                    get_key_pair_from_rng::<AccountKeyPair, _>(&mut self.rng)
-                        .1
-                        .into(),
+                .map(|i| {
+                    (
+                        i,
+                        (
+                            get_key_pair_from_rng(&mut self.rng).1,
+                            get_key_pair_from_rng::<AccountKeyPair, _>(&mut self.rng)
+                                .1
+                                .into(),
+                            get_key_pair_from_rng::<AccountKeyPair, _>(&mut self.rng)
+                                .1
+                                .into(),
+                        ),
+                    )
+                })
+                .map(
+                    |(i, (key_pair, account_key_pair, network_key_pair)): (
+                        _,
+                        (AuthorityKeyPair, SuiKeyPair, SuiKeyPair),
+                    )| {
+                        Self::build_validator(i, key_pair, account_key_pair, network_key_pair)
+                    },
                 )
-            })
-            .map(
-                |(key_pair, account_key_pair, network_key_pair): (
-                    AuthorityKeyPair,
-                    SuiKeyPair,
-                    SuiKeyPair,
-                )| {
-                    ValidatorGenesisInfo {
-                        key_pair,
-                        account_key_pair,
-                        network_key_pair,
-                        network_address: utils::new_network_address(),
-                        stake: DEFAULT_STAKE,
-                        gas_price: DEFAULT_GAS_PRICE,
-                        narwhal_primary_to_primary: utils::new_network_address(),
-                        narwhal_worker_to_primary: utils::new_network_address(),
-                        narwhal_primary_to_worker: utils::new_network_address(),
-                        narwhal_worker_to_worker: utils::new_network_address(),
-                        narwhal_consensus_address: utils::new_network_address(),
-                    }
-                },
-            )
-            .collect::<Vec<_>>(),
+                .collect::<Vec<_>>(),
             CommitteeConfig::Validators(v) => v,
         };
 
         self.build_with_validators(validators)
+    }
+
+    fn build_validator(
+        index: usize,
+        key_pair: AuthorityKeyPair,
+        account_key_pair: SuiKeyPair,
+        network_key_pair: SuiKeyPair,
+    ) -> ValidatorGenesisInfo {
+        if cfg!(madsim) {
+            Self::build_validator_for_simulator(index, key_pair, account_key_pair, network_key_pair)
+        } else {
+            Self::build_validator_for_localhost(index, key_pair, account_key_pair, network_key_pair)
+        }
+    }
+
+    #[cfg(madsim)]
+    fn build_validator_for_simulator(
+        index: usize,
+        key_pair: AuthorityKeyPair,
+        account_key_pair: SuiKeyPair,
+        network_key_pair: SuiKeyPair,
+    ) -> ValidatorGenesisInfo {
+        let low_octet = index + 1;
+
+        // we will probably never run this many validators in a sim
+        if low_octet > 255 {
+            todo!("smarter IP formatting required");
+        }
+
+        let ip = format!("10.10.0.{}", low_octet);
+
+        ValidatorGenesisInfo::from_base_ip(key_pair, account_key_pair, network_key_pair, ip)
+    }
+
+    fn build_validator_for_localhost(
+        _index: usize,
+        key_pair: AuthorityKeyPair,
+        account_key_pair: SuiKeyPair,
+        network_key_pair: SuiKeyPair,
+    ) -> ValidatorGenesisInfo {
+        ValidatorGenesisInfo::from_localhost_for_testing(
+            key_pair,
+            account_key_pair,
+            network_key_pair,
+        )
     }
 
     fn build_with_validators(mut self, validators: Vec<ValidatorGenesisInfo>) -> NetworkConfig {
