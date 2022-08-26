@@ -52,6 +52,9 @@ workspace-hack = { path = "../workspace-hack" }
 multiaddr = "0.14.0"
 hex = "0.4.3"
 
+[target.'cfg(madsim)'.dependencies]
+madsim = { path = "../../../madsim-fork/madsim" }
+
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 jemallocator = { version = "^0.5", features = ["profiling"] }
 jemalloc-ctl = "^0.5"

@@ -36,6 +36,10 @@ members = [
     "crates/x",
 ]
 
+exclude = [
+    "simulation",
+]
+
 [profile.release]
 # The following two lines add minimal symbol information, which helps certain profilers like Bytehound
 # without significantly increasing binary size
@@ -46,3 +50,7 @@ strip = 'debuginfo'
 # Do not strip any debug info.  This helps the widest set of profiling tools
 debug = true
 strip = 'none'
+
+[patch.crates-io]
+tokio = { path = "/Users/mlogan/dev/madsim-fork/madsim-tokio" }
+hyper = { path = "/Users/mlogan/dev/madsim-fork/hyper-madsim-fork" }

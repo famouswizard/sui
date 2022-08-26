@@ -39,3 +39,6 @@ digest = "0.10.3"
 [dev-dependencies]
 insta = { version = "1.17.1", features = ["redactions", "yaml"] }
 tempfile = "3.3.0"
+
+[target.'cfg(madsim)'.dependencies]
+madsim = { path = "../../../madsim-fork/madsim" }
