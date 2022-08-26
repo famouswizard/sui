@@ -19,8 +19,9 @@ use futures::channel::oneshot;
 use rocksdb::Options;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::thread::JoinHandle;
+//use std::thread::JoinHandle;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info, trace, warn};
 use typed_store::rocks::{DBBatch, DBMap};
 use typed_store::traits::DBMapTableUtil;
@@ -32,6 +33,8 @@ use sui_types::batch::TxSequenceNumber;
 use sui_types::error::{SuiError, SuiResult};
 
 use crate::default_db_options;
+
+use tap::TapFallible;
 
 /// Commands to send to the LockService (for mutating lock state)
 // TODO: use smallvec as an optimization
@@ -326,10 +329,10 @@ impl LockServiceImpl {
 
     /// Loop to continuously process mutating commands in a single thread from async senders.
     /// It terminates when the sender drops, which usually is when the containing data store is dropped.
-    fn run_command_loop(&self, mut receiver: Receiver<LockServiceCommands>) {
+    async fn run_command_loop(&self, mut receiver: Receiver<LockServiceCommands>) {
         info!("LockService command processing loop started");
         // NOTE: we use blocking_recv() as its faster than using regular async recv() with awaits in a loop
-        while let Some(msg) = receiver.blocking_recv() {
+        while let Some(msg) = receiver.recv().await {
             match msg {
                 LockServiceCommands::Acquire {
                     refs,
@@ -374,9 +377,9 @@ impl LockServiceImpl {
     }
 
     /// Loop to continuously process queries in a single thread
-    fn run_queries_loop(&self, mut receiver: Receiver<LockServiceQueries>) {
+    async fn run_queries_loop(&self, mut receiver: Receiver<LockServiceQueries>) {
         info!("LockService queries processing loop started");
-        while let Some(msg) = receiver.blocking_recv() {
+        while let Some(msg) = receiver.recv().await {
             match msg {
                 LockServiceQueries::GetLock { object, resp } => {
                     if let Err(_e) = resp.send(self.get_lock(object)) {
@@ -435,16 +438,25 @@ impl Drop for LockServiceInner {
         // "run_command_loop" and "run_queries_loop" to terminate so that we can join the threads.
         self.sender.take();
         self.query_sender.take();
-        self.run_command_loop
+
+        let run_command_loop = self
+            .run_command_loop
             .take()
-            .expect("run_command_loop thread should not have already been joined")
-            .join()
-            .unwrap();
-        self.run_queries_loop
+            .expect("run_command_loop thread should not have already been joined");
+
+        let run_queries_loop = self
+            .run_queries_loop
             .take()
-            .expect("run_queries_loop thread should not have already been joined")
-            .join()
-            .unwrap();
+            .expect("run_queries_loop thread should not have already been joined");
+
+        tokio::task::spawn(async move {
+            let _ = run_command_loop
+                .await
+                .tap_err(|e| error!("error joining command loop: {}", e));
+            let _ = run_queries_loop
+                .await
+                .tap_err(|e| error!("error joining queries loop: {}", e));
+        });
 
         debug!("End Dropping LockService");
     }
@@ -459,13 +471,13 @@ impl LockService {
         // Now, create a sync channel and spawn a thread
         let (sender, receiver) = channel(LOCKSERVICE_QUEUE_LEN);
         let inner2 = inner_service.clone();
-        let run_command_loop = std::thread::spawn(move || {
-            inner2.run_command_loop(receiver);
+        let run_command_loop = tokio::task::spawn(async move {
+            inner2.run_command_loop(receiver).await;
         });
 
         let (q_sender, q_receiver) = channel(LOCKSERVICE_QUEUE_LEN);
-        let run_queries_loop = std::thread::spawn(move || {
-            inner_service.run_queries_loop(q_receiver);
+        let run_queries_loop = tokio::task::spawn(async move {
+            inner_service.run_queries_loop(q_receiver).await;
         });
 
         Ok(Self {
