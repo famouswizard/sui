@@ -13,11 +13,10 @@ use std::{
     path::{Path, PathBuf},
 };
 use sui_config::builder::{CommitteeConfig, ConfigBuilder};
-use sui_config::genesis_config::GenesisConfig;
+use sui_config::genesis_config::{GenesisConfig, ValidatorGenesisInfo};
 use sui_config::NetworkConfig;
 use sui_types::base_types::SuiAddress;
 use tempfile::TempDir;
-
 
 pub struct SwarmBuilder<R = OsRng> {
     rng: R,
