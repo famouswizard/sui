@@ -6,31 +6,23 @@ use anyhow::Result;
 use futures::future::try_join_all;
 use rand::rngs::OsRng;
 use std::collections::HashMap;
-use std::future::Future;
-use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::num::NonZeroUsize;
-use std::str::FromStr;
 use std::{
     mem, ops,
     path::{Path, PathBuf},
 };
-use sui_config::builder::{CommitteeConfig, ConfigBuilder};
-use sui_config::genesis_config::{GenesisConfig, ValidatorGenesisInfo};
+use sui_config::builder::ConfigBuilder;
+use sui_config::genesis_config::GenesisConfig;
 use sui_config::NetworkConfig;
 use sui_types::base_types::SuiAddress;
-use sui_types::crypto::{get_key_pair_from_rng, AccountKeyPair, SuiKeyPair};
 use tempfile::TempDir;
-
-use tracing::{info, warn};
-
-use tap::TapFallible;
 
 pub struct SwarmBuilder<R = OsRng> {
     rng: R,
     // template: NodeConfig,
     dir: Option<PathBuf>,
-    committee: CommitteeConfig,
+    committee_size: NonZeroUsize,
     initial_accounts_config: Option<GenesisConfig>,
     fullnode_count: usize,
     fullnode_rpc_addr: Option<SocketAddr>,
@@ -43,7 +35,7 @@ impl SwarmBuilder {
         Self {
             rng: OsRng,
             dir: None,
-            committee: CommitteeConfig::Size(NonZeroUsize::new(1).unwrap()),
+            committee_size: NonZeroUsize::new(1).unwrap(),
             initial_accounts_config: None,
             fullnode_count: 0,
             fullnode_rpc_addr: None,
@@ -57,7 +49,7 @@ impl<R> SwarmBuilder<R> {
         SwarmBuilder {
             rng,
             dir: self.dir,
-            committee: self.committee,
+            committee_size: self.committee_size,
             initial_accounts_config: self.initial_accounts_config,
             fullnode_count: self.fullnode_count,
             fullnode_rpc_addr: self.fullnode_rpc_addr,
@@ -79,12 +71,7 @@ impl<R> SwarmBuilder<R> {
     ///
     /// Defaults to 1.
     pub fn committee_size(mut self, committee_size: NonZeroUsize) -> Self {
-        self.committee = CommitteeConfig::Size(committee_size);
-        self
-    }
-
-    pub fn with_validators(mut self, validators: Vec<ValidatorGenesisInfo>) -> Self {
-        self.committee = CommitteeConfig::Validators(validators);
+        self.committee_size = committee_size;
         self
     }
 
@@ -110,33 +97,6 @@ impl<R> SwarmBuilder<R> {
 }
 
 impl<R: ::rand::RngCore + ::rand::CryptoRng> SwarmBuilder<R> {
-    pub fn with_validators_ipv4(mut self, validators: Vec<&str>) -> Self {
-        let validators = validators
-            .iter()
-            .map(|ip| {
-                let key_pair = get_key_pair_from_rng(&mut self.rng).1;
-                let account_key_pair: SuiKeyPair =
-                    get_key_pair_from_rng::<AccountKeyPair, _>(&mut self.rng)
-                        .1
-                        .into();
-                let network_key_pair: SuiKeyPair =
-                    get_key_pair_from_rng::<AccountKeyPair, _>(&mut self.rng)
-                        .1
-                        .into();
-
-                ValidatorGenesisInfo::from_base_ip(
-                    key_pair,
-                    account_key_pair,
-                    network_key_pair,
-                    (*ip).into(),
-                )
-            })
-            .collect();
-
-        self.committee = CommitteeConfig::Validators(validators);
-        self
-    }
-
     /// Create the configured Swarm.
     pub fn build(self) -> Swarm {
         let dir = if let Some(dir) = self.dir {
@@ -152,7 +112,7 @@ impl<R: ::rand::RngCore + ::rand::CryptoRng> SwarmBuilder<R> {
         }
 
         let network_config = config_builder
-            .committee(self.committee)
+            .committee_size(self.committee_size)
             .rng(self.rng)
             .build();
 
@@ -224,35 +184,8 @@ impl Swarm {
         let start_handles = nodes_iter
             .map(|node| node.spawn())
             .collect::<Result<Vec<_>>>()?;
-        tracing::error!("start_handles len {:?}", start_handles.len());
 
-        try_join_all(start_handles)
-            .await
-            .tap_err(|e| warn!("{}", e))?;
-
-        Ok(())
-    }
-
-    pub async fn run_client_task<F: Future + Send + 'static>(&self, ip: &str, f: F) -> Result<()> {
-        let ip = IpAddr::from_str(ip).unwrap();
-
-        let handle = madsim::runtime::Handle::current();
-        let builder = handle.create_node();
-        let node = builder
-            .ip(ip)
-            .name("client")
-            .init(|| async {
-                info!("client restarted");
-            })
-            .build();
-
-        node.spawn(async move {
-            dbg!("-");
-            f.await;
-            dbg!("-");
-        })
-        .await?;
-        dbg!("-");
+        try_join_all(start_handles).await?;
 
         Ok(())
     }

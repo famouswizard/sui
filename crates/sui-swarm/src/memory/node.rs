@@ -9,13 +9,7 @@ use sui_config::NodeConfig;
 use sui_node::SuiNode;
 use sui_types::base_types::SuiAddress;
 use tap::TapFallible;
-use tracing::{error, info, trace};
-
-#[cfg(madsim)]
-use madsim;
-
-#[cfg(madsim)]
-use std::net::{IpAddr, SocketAddr};
+use tracing::{error, trace};
 
 /// A handle to an in-memory Sui Node.
 ///
@@ -74,11 +68,7 @@ impl Node {
     /// Stop this Node
     pub fn stop(&mut self) {
         trace!(name =% self.name(), "stopping in-memory node");
-        if let Some(mut thread) = self.thread.take() {
-            if let Some(sender) = thread.cancel_sender.take() {
-                sender.send(()).unwrap();
-            }
-        }
+        self.thread = None;
     }
 
     /// Perform a health check on this Node by:
@@ -123,7 +113,7 @@ impl std::error::Error for HealthCheckError {}
 
 #[derive(Debug)]
 struct Container {
-    join_handle: Option<thread::JoinHandle<()>>,
+    thread: Option<thread::JoinHandle<()>>,
     cancel_sender: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
@@ -132,19 +122,14 @@ impl Drop for Container {
     fn drop(&mut self) {
         trace!("dropping Container");
 
-        let join_handle = self.join_handle.take().unwrap();
+        let thread = self.thread.take().unwrap();
         let cancel_handle = self.cancel_sender.take().unwrap();
 
         // Notify the thread to shutdown
-        dbg!("send cancel");
         let _ = cancel_handle.send(());
-        //std::process::exit(0);
 
         // Wait for the thread to join
-        // XXX Deadlock
-        //if join_handle.join().is_err() {
-        //    error!("join error");
-        //}
+        thread.join().unwrap();
 
         trace!("finished dropping Container");
     }
@@ -159,97 +144,55 @@ impl Container {
         let (startup_sender, startup_reciever) = tokio::sync::oneshot::channel();
         let (cancel_sender, cancel_reciever) = tokio::sync::oneshot::channel();
 
-        let inner_config = config.clone();
-        let server = async move {
-            let config = inner_config;
-            let _server = SuiNode::start(&config).await.unwrap();
-            // Notify that we've successfully started the node
-            error!("node started, sending oneshot");
-            let _ = startup_sender.send(());
-            // run until canceled
-            cancel_reciever.map(|_| ()).await;
+        let thread = thread::spawn(move || {
+            let span = tracing::span!(
+                tracing::Level::INFO,
+                "node",
+                name =% config.sui_address()
+            );
+            let _guard = span.enter();
 
-            trace!("cancellation received; shutting down thread");
-        };
-
-        let join_handle = if cfg!(madsim) {
-            let handle = madsim::runtime::Handle::current();
-            let builder = handle.create_node();
-
-            let socket_addr =
-                mysten_network::multiaddr::to_socket_addr(&config.network_address).unwrap();
-            let ip = match socket_addr {
-                SocketAddr::V4(v4) => IpAddr::V4(*v4.ip()),
-                _ => panic!("unsupported protocol"),
-            };
-
-            let node = builder
-                .ip(ip)
-                .name(format!("{}", config.protocol_public_key()))
-                .init(|| async {
-                    info!("node restarted");
-                })
-                .build();
-
-            let (tx, rx) = tokio::sync::oneshot::channel();
-
-            node.spawn(async move {
-                server.await;
-                tx.send(()).unwrap();
-            });
-
-            let thread = thread::spawn(move || {
-                if let Err(e) = rx.blocking_recv() {
-                    error!("thread wait failed: {}", e);
-                }
-            });
-
-            thread
-        } else {
-            let thread = thread::spawn(move || {
-                let span = tracing::span!(
-                    tracing::Level::INFO,
-                    "node",
-                    name =% config.sui_address()
-                );
-                let _guard = span.enter();
-
-                let mut builder = match runtime {
-                    RuntimeType::SingleThreaded => tokio::runtime::Builder::new_current_thread(),
-                    RuntimeType::MultiThreaded => {
-                        thread_local! {
-                            static SPAN: std::cell::RefCell<Option<tracing::span::EnteredSpan>> =
-                                std::cell::RefCell::new(None);
-                        }
-                        let mut builder = tokio::runtime::Builder::new_multi_thread();
-                        let span = span.clone();
-                        builder
-                            .on_thread_start(move || {
-                                SPAN.with(|maybe_entered_span| {
-                                    *maybe_entered_span.borrow_mut() = Some(span.clone().entered());
-                                });
-                            })
-                            .on_thread_stop(|| {
-                                SPAN.with(|maybe_entered_span| {
-                                    maybe_entered_span.borrow_mut().take();
-                                });
-                            });
-
-                        builder
+            let mut builder = match runtime {
+                RuntimeType::SingleThreaded => tokio::runtime::Builder::new_current_thread(),
+                RuntimeType::MultiThreaded => {
+                    thread_local! {
+                        static SPAN: std::cell::RefCell<Option<tracing::span::EnteredSpan>> =
+                            std::cell::RefCell::new(None);
                     }
-                };
-                let runtime = builder.enable_all().build().unwrap();
+                    let mut builder = tokio::runtime::Builder::new_multi_thread();
+                    let span = span.clone();
+                    builder
+                        .on_thread_start(move || {
+                            SPAN.with(|maybe_entered_span| {
+                                *maybe_entered_span.borrow_mut() = Some(span.clone().entered());
+                            });
+                        })
+                        .on_thread_stop(|| {
+                            SPAN.with(|maybe_entered_span| {
+                                maybe_entered_span.borrow_mut().take();
+                            });
+                        });
 
-                runtime.block_on(server);
+                    builder
+                }
+            };
+            let runtime = builder.enable_all().build().unwrap();
+
+            runtime.block_on(async move {
+                let _server = SuiNode::start(&config).await.unwrap();
+                // Notify that we've successfully started the node
+                let _ = startup_sender.send(());
+                // run until canceled
+                cancel_reciever.map(|_| ()).await;
+
+                trace!("cancellation received; shutting down thread");
             });
-
-            thread
-        };
+        });
 
         (
             startup_reciever,
             Self {
-                join_handle: Some(join_handle),
+                thread: Some(thread),
                 cancel_sender: Some(cancel_sender),
             },
         )

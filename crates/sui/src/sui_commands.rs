@@ -236,8 +236,7 @@ impl SuiCommand {
                 let mut network_config = if let Some(validators) = validator_info {
                     ConfigBuilder::new(sui_config_dir)
                         .initial_accounts_config(genesis_conf)
-                        .with_validators(validators)
-                        .build()
+                        .build_with_validators(validators)
                 } else {
                     ConfigBuilder::new(sui_config_dir)
                         .committee_size(NonZeroUsize::new(genesis_conf.committee_size).unwrap())

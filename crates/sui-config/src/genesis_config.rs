@@ -1,7 +1,6 @@
 // Copyright (c) 2022, Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{utils, DEFAULT_GAS_PRICE, DEFAULT_STAKE};
 use anyhow::Result;
 use multiaddr::Multiaddr;
 use serde::{Deserialize, Serialize};
@@ -100,53 +99,6 @@ pub struct ValidatorGenesisInfo {
     pub narwhal_primary_to_worker: Multiaddr,
     pub narwhal_worker_to_worker: Multiaddr,
     pub narwhal_consensus_address: Multiaddr,
-}
-
-impl ValidatorGenesisInfo {
-    pub fn from_localhost_for_testing(
-        key_pair: AuthorityKeyPair,
-        account_key_pair: SuiKeyPair,
-        network_key_pair: SuiKeyPair,
-    ) -> Self {
-        Self {
-            key_pair,
-            account_key_pair,
-            network_key_pair,
-            network_address: utils::new_network_address(),
-            stake: DEFAULT_STAKE,
-            gas_price: DEFAULT_GAS_PRICE,
-            narwhal_primary_to_primary: utils::new_network_address(),
-            narwhal_worker_to_primary: utils::new_network_address(),
-            narwhal_primary_to_worker: utils::new_network_address(),
-            narwhal_worker_to_worker: utils::new_network_address(),
-            narwhal_consensus_address: utils::new_network_address(),
-        }
-    }
-
-    pub fn from_base_ip(
-        key_pair: AuthorityKeyPair,
-        account_key_pair: SuiKeyPair,
-        network_key_pair: SuiKeyPair,
-
-        ip: String,
-    ) -> Self {
-        let make_addr =
-            |port: u16| -> Multiaddr { format!("/ip4/{}/tcp/{}/http", ip, port).parse().unwrap() };
-
-        ValidatorGenesisInfo {
-            key_pair,
-            account_key_pair,
-            network_key_pair,
-            network_address: make_addr(8000),
-            stake: DEFAULT_STAKE,
-            gas_price: DEFAULT_GAS_PRICE,
-            narwhal_primary_to_primary: make_addr(8100),
-            narwhal_worker_to_primary: make_addr(8200),
-            narwhal_primary_to_worker: make_addr(8300),
-            narwhal_worker_to_worker: make_addr(8400),
-            narwhal_consensus_address: make_addr(8500),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
